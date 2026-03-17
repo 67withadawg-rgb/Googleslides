@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>2D Car Soccer - Canvas Prototype</title>
+    <style>
+        body { 
+            background: #121212; 
+            color: #ffffff; 
+            font-family: sans-serif; 
+            text-align: center; 
+            margin: 0; 
+            padding: 20px; 
+            user-select: none;
+        }
+        /* The Game Board */
+        canvas { 
+            background: #2e7d32; /* Grass Green */
+            border: 4px solid #ffffff; 
+            border-radius: 10px; 
+            box-shadow: 0 0 20px rgba(0,0,0,0.5); 
+        }
+        /* The UI Area */
+        #ui-panel { 
+            margin-top: 15px; 
+            background: #222; 
+            padding: 15px; 
+            border-radius: 8px; 
+            display: inline-block; 
+        }
+        input, button { 
+            padding: 10px; 
+            margin: 5px; 
+            border-radius: 4px; 
+            border: none; 
+            font-size: 14px;
+        }
+        input { width: 250px; text-align: center; }
+        button { 
+            background: #007bff; 
+            color: white; 
+            cursor: pointer; 
+            font-weight: bold;
+        }
+        button:hover { background: #0056b3; }
+        .controls { color: #aaa; font-size: 14px; margin-top: 10px;}
+    </style>
+</head>
+<body>
+
+    <h2>Total Goals: <span id="score">0</span></h2>
+    
+    <canvas id="gameCanvas" width="800" height="500"></canvas>
+    
+    <p class="controls">Controls: Use <strong>Arrow Keys</strong> or <strong>W, A, S, D</strong> to drive. Hit the ball into the red goal!</p>
+
+    <div id="ui-panel">
+        <h3>Save & Load System</h3>
+        <button onclick="generateSave()">Generate Save Code</button>
+        <input type="text" id="saveCode" placeholder="Paste your code here...">
+        <button onclick="loadSave()">Load Progress</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        // --- GAME STATE ---
+        let stats = { goals: 0 };
+        let keys = {}; // Tracks which keys are currently pressed
+        
+        // --- GAME OBJECTS ---
+        const car = {
+            x: 200, y: 250, 
+            width: 40, height: 24, 
+            angle: 0, speed: 0, 
+            maxSpeed: 7, acceleration: 0.3, friction: 0.96, turnSpeed: 0.08
+        };
+        
+        const ball = {
+            x: 400, y: 250, 
+            radius: 15, 
+            vx: 0, vy: 0, // Velocity X and Y
+            friction: 0.98, bounce: 0.8
+        };
+
+        const goal = { x: 780, y: 175, width: 20, height: 150 }; // Goal on the right wall
+
+        // --- INPUT LISTENER ---
+        window.addEventListener('keydown', e => keys[e.key] = true);
+        window.addEventListener('keyup', e => keys[e.key] = false);
+
+        // --- SAVE SYSTEM FUNCTIONS ---
+        function updateScore() { 
+            document.getElementById('score').innerText = stats.goals; 
+        }
+        
+        function generateSave() {
+            const code = btoa(JSON.stringify(stats)); // Encode to Base64
+            document.getElementById('saveCode').value = code;
+            alert("Code generated! Copy it and save it somewhere safe.");
+        }
+        
+        function loadSave() {
+            try {
+                const code = document.getElementById('saveCode').value;
+                stats = JSON.parse(atob(code)); // Decode from Base64
+                updateScore();
+                alert("Progress successfully loaded!");
+            } catch(e) { 
+                alert("Invalid save code! Make sure you copied it correctly."); 
+            }
+        }
+
+        function resetBall() {
+            ball.x = 400; ball.y = 250;
+            ball.vx = 0; ball.vy = 0;
+            car.speed = 0; // Stop the car too to give them a breather
+        }
+
+        // --- THE PHYSICS ENGINE ---
+        function update() {
+            // 1. Car Movement
+            if (keys['ArrowUp'] || keys['w']) car.speed += car.acceleration;
+            if (keys['ArrowDown'] || keys['s']) car.speed -= car.acceleration;
+            if (keys['ArrowLeft'] || keys['a']) car.angle -= car.turnSpeed;
+            if (keys['ArrowRight'] || keys['d']) car.angle += car.turnSpeed;
+
+            // Apply friction (slows car down when you let go of gas)
+            car.speed *= car.friction;
+            
+            // Limit speed
+            if (car.speed > car.maxSpeed) car.speed = car.maxSpeed;
+            if (car.speed < -car.maxSpeed/2) car.speed = -car.maxSpeed/2; // Reverse is slower
+
+            // Update Car Position using Trigonometry
+            car.x += Math.cos(car.angle) * car.speed;
+            car.y += Math.sin(car.angle) * car.speed;
+
+            // Car hitting Walls (Keep in bounds)
+            if (car.x < car.width/2) car.x = car.width/2;
+            if (car.x > canvas.width - car.width/2) car.x = canvas.width - car.width/2;
+            if (car.y < car.height/2) car.y = car.height/2;
+            if (car.y > canvas.height - car.height/2) car.y = canvas.height - car.height/2;
+
+            // 2. Ball Movement
+            ball.x += ball.vx;
+            ball.y += ball.vy;
+            ball.vx *= ball.friction; // Air resistance
+            ball.vy *= ball.friction;
+
+            // Ball hitting Top, Bottom, and Left Walls (Bouncing)
+            if (ball.x - ball.radius < 0) { ball.x = ball.radius; ball.vx *= -ball.bounce; }
+            if (ball.y - ball.radius < 0) { ball.y = ball.radius; ball.vy *= -ball.bounce; }
+            if (ball.y + ball.radius > canvas.height) { ball.y = canvas.height - ball.radius; ball.vy *= -ball.bounce; }
+            
+            // Ball hitting Right Wall (Check for Goal!)
+            if (ball.x + ball.radius > canvas.width) {
+                // Did it hit inside the goal height?
+                if (ball.y > goal.y && ball.y < goal.y + goal.height) {
+                    stats.goals++;
+                    updateScore();
+                    resetBall();
+                } else {
+                    // It hit the wall outside the goal, so it bounces
+                    ball.x = canvas.width - ball.radius;
+                    ball.vx *= -ball.bounce;
+                }
+            }
+
+            // 3. Car & Ball Collision (Simplified Math)
+            let dx = ball.x - car.x;
+            let dy = ball.y - car.y;
+            let distance = Math.sqrt(dx*dx + dy*dy);
+            let collisionDistance = ball.radius + 20; // 20 is approx the car's radius
+
+            if (distance < collisionDistance) {
+                // Find angle of collision
+                let angle = Math.atan2(dy, dx);
+                
+                // Push ball exactly outside of the car so they don't get stuck
+                ball.x = car.x + Math.cos(angle) * collisionDistance;
+                ball.y = car.y + Math.sin(angle) * collisionDistance;
+
+                // Transfer momentum to the ball
+                let hitPower = Math.abs(car.speed) + 3; // +3 ensures even slow hits bump the ball
+                ball.vx += Math.cos(angle) * hitPower;
+                ball.vy += Math.sin(angle) * hitPower;
+                
+                // Slow the car down slightly upon impact
+                car.speed *= 0.6;
+            }
+        }
+
+        // --- THE GRAPHICS ENGINE ---
+        function draw() {
+            // Clear the screen for the next frame
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Draw Center Field Lines
+            ctx.strokeStyle = "rgba(255,255,255,0.3)";
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.arc(canvas.width/2, canvas.height/2, 50, 0, Math.PI*2); // Center Circle
+            ctx.moveTo(canvas.width/2, 0);
+            ctx.lineTo(canvas.width/2, canvas.height); // Center Line
+            ctx.stroke();
+
+            // Draw the Goal
+            ctx.fillStyle = "rgba(255, 50, 50, 0.6)"; // Transparent Red
+            ctx.fillRect(goal.x, goal.y, goal.width, goal.height);
+
+            // Draw the Ball
+            ctx.fillStyle = "#ffffff";
+            ctx.beginPath();
+            ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Draw the Car
+            ctx.save();
+            ctx.translate(car.x, car.y); // Move to car's position
+            ctx.rotate(car.angle);       // Rotate canvas to car's angle
+            ctx.fillStyle = "#3498db";   // Blue color
+            ctx.fillRect(-car.width/2, -car.height/2, car.width, car.height);
+            
+            // Draw "Headlights" so you know which way is forward
+            ctx.fillStyle = "yellow";
+            ctx.fillRect(car.width/2 - 4, -car.height/2 + 2, 4, 6); // Top headlight
+            ctx.fillRect(car.width/2 - 4, car.height/2 - 8, 4, 6);  // Bottom headlight
+            ctx.restore(); // Reset canvas rotation for the next frame
+        }
+
+        // --- THE GAME LOOP ---
+        function loop() {
+            update(); // Do the math
+            draw();   // Paint the screen
+            requestAnimationFrame(loop); // Ask the browser to do it again, 60 times a second
+        }
+
+        // Start the game!
+        loop();
+    </script>
+</body>
+</html>
